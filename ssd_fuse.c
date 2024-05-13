@@ -84,17 +84,16 @@ static int ssd_expand(size_t new_size)
 
 static int nand_read(char* buf, int pca)
 {
-    char nand_name[100];
     FILE* fptr;
-
     PCA_RULE my_pca;
     my_pca.pca = pca;
-    snprintf(nand_name, 100, "%s/nand_%d", NAND_LOCATION, my_pca.fields.block);
+    int block_offset = my_pca.fields.block * NAND_SIZE_KB * 1024; // 塊大小轉換為字節
 
     //read from nand
-    if ( (fptr = fopen(nand_name, "r") ))
+    if ( (fptr = fopen(NAND_LOCATION, "r") ))
     {
-        fseek( fptr, my_pca.fields.page * 512, SEEK_SET );
+        int offset = block_offset + my_pca.fields.page * 512;
+        fseek( fptr, offset, SEEK_SET );
         fread(buf, 1, 512, fptr);
         fclose(fptr);
     }
@@ -107,24 +106,23 @@ static int nand_read(char* buf, int pca)
 }
 static int nand_write(const char* buf, int pca)
 {
-    char nand_name[100];
     FILE* fptr;
-
     PCA_RULE my_pca;
     my_pca.pca = pca;
-    snprintf(nand_name, 100, "%s/nand_%d", NAND_LOCATION, my_pca.fields.block);
+    int block_offset = my_pca.fields.block * NAND_SIZE_KB * 1024;
 
     //write to nand
-    if ( (fptr = fopen(nand_name, "r+")))
+    if ( (fptr = fopen(NAND_LOCATION, "r+")))
     {
-        fseek( fptr, my_pca.fields.page * 512, SEEK_SET );
+        int offset = block_offset + my_pca.fields.page * 512;
+        fseek( fptr, offset, SEEK_SET);
         fwrite(buf, 1, 512, fptr);
         fclose(fptr);
         physic_size ++;
     }
     else
     {
-        printf("open file fail at nand (%s) write pca = %d, return %d\n", nand_name, pca, -EINVAL);
+        printf("open file fail at nand (%s) write pca = %d, return %d\n", NAND_LOCATION, pca, -EINVAL);
         return -EINVAL;
     }
 
@@ -134,35 +132,26 @@ static int nand_write(const char* buf, int pca)
 
 static int nand_erase(int block)
 {
-    char nand_name[100];
-	// int found = 0;
+    char zero_data[1024 * NAND_SIZE_KB]; // 創建一個與 NAND 塊相同大小的數據緩衝區
+    memset(zero_data, 0, sizeof(zero_data)); // 將數據緩衝區填充為0
     FILE* fptr;
-
-    snprintf(nand_name, 100, "%s/nand_%d", NAND_LOCATION, block);
-
-    //erase nand
-    if ( (fptr = fopen(nand_name, "w")))
-    {
+    int block_offset = block * NAND_SIZE_KB * 1024;
+    if ((fptr = fopen(NAND_LOCATION, "r+"))) {
+        fseek(fptr, block_offset, SEEK_SET);
+        size_t written = fwrite(zero_data, 1, sizeof(zero_data), fptr);
         fclose(fptr);
+        if (written == sizeof(zero_data)) {
+            printf("NAND block %d erased successfully\n", block);
+            physic_size -= NAND_SIZE_KB * 1024 / 512;
+            return 1; // 成功擦除
+        } else {
+            printf("Failed to erase NAND block %d\n", block);
+            return -EIO; // 輸入/輸出錯誤
+        }
+    } else {
+        printf("Open file failed at nand erase, block = %d\n", block);
+        return -EINVAL; // 無效的引數錯誤
     }
-    else
-    {
-        printf("open file fail at nand (%s) erase nand = %d, return %d\n", nand_name, block, -EINVAL);
-        return -EINVAL;
-    }
-
-
-	// if (found == 0)
-	// {
-	// 	printf("nand erase not found\n");
-	// 	return -EINVAL;
-	// }
-
-    printf("nand erase %d pass\n", block);
-
-    physic_size -= NAND_SIZE_KB * 1024 / 512;
-    
-    return 1;
 }
 
 // Pre-declare the function ftl_gc
@@ -588,8 +577,6 @@ static const struct fuse_operations ssd_oper =
 };
 int main(int argc, char* argv[])
 {
-    int idx;
-    char nand_name[100];
     physic_size = 0;
     logic_size = 0;
 	nand_write_size = 0;
@@ -597,18 +584,5 @@ int main(int argc, char* argv[])
     curr_pca.pca = INVALID_PCA;
     L2P = malloc(LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / 512 * sizeof(int));
     memset(L2P, INVALID_PCA, sizeof(int)*LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / 512);
-
-    //create nand file
-    for (idx = 0; idx < PHYSICAL_NAND_NUM; idx++)
-    {
-        FILE* fptr;
-        snprintf(nand_name, 100, "%s/nand_%d", NAND_LOCATION, idx);
-        fptr = fopen(nand_name, "w");
-        if (fptr == NULL)
-        {
-            printf("open fail");
-        }
-        fclose(fptr);
-    }
     return fuse_main(argc, argv, &ssd_oper, NULL);
 }

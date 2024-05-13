@@ -8,12 +8,12 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/ioctl.h>
-#define PHYSICAL_NAND_NUM (3776) // 8
+#define PHYSICAL_NAND_NUM (8) // 8
 #define LOGICAL_NAND_NUM (5)
-#define NAND_SIZE_KB (9216) // 1 block = 576 pages   1 page = 16KB   10
+#define NAND_SIZE_KB (10)
 #define INVALID_PCA     (0xFFFFFFFF)
 #define FULL_PCA     (0xFFFFFFFE)
-#define NAND_LOCATION  "/home/server1/Desktop/ssd_fuse_final"
+#define NAND_LOCATION  "/home/server1/Desktop/ssd_fuse_final/nand_image.img"
 
 enum
 {
