@@ -8,9 +8,10 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/ioctl.h>
-#define PHYSICAL_NAND_NUM (8) // 8
-#define LOGICAL_NAND_NUM (5)
-#define NAND_SIZE_KB (10)
+#define PHYSICAL_NAND_NUM (12500) // 8, 10000
+#define LOGICAL_NAND_NUM (10000)
+#define NAND_SIZE_KB (80)         // 10
+#define PAGE_SIZE (4096)          // 4KB
 #define INVALID_PCA     (0xFFFFFFFF)
 #define FULL_PCA     (0xFFFFFFFE)
 #define NAND_LOCATION  "/home/server1/Desktop/ssd_fuse_final/nand_image.img"

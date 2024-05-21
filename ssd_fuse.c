@@ -30,8 +30,8 @@ enum
 };
 
 int reserve_nand = PHYSICAL_NAND_NUM - 1; // reserve nand
-int P2L[PHYSICAL_NAND_NUM][NAND_SIZE_KB * 1024 / 512] = {[0 ... PHYSICAL_NAND_NUM-1][0 ... NAND_SIZE_KB * 1024 / 512-1] = CLEAR};
-int remain_pages = (PHYSICAL_NAND_NUM - 1) * NAND_SIZE_KB * 1024 / 512;
+int P2L[PHYSICAL_NAND_NUM][NAND_SIZE_KB * 1024 / PAGE_SIZE] = {[0 ... PHYSICAL_NAND_NUM-1][0 ... NAND_SIZE_KB * 1024 / PAGE_SIZE -1] = CLEAR};
+int remain_pages = (PHYSICAL_NAND_NUM - 1) * NAND_SIZE_KB * 1024 / PAGE_SIZE;
 int dirty_block_list[PHYSICAL_NAND_NUM] = {0}; // 紀錄每個block的dirty page數，用於gc找最少dirty block
 
 static size_t physic_size;
@@ -57,7 +57,7 @@ unsigned int* L2P;
 static int ssd_resize(size_t new_size)
 {
     //set logic size to new_size
-    //Logic size is 5 * 10 * 1024 = 5 * 20 * 512
+    //Logic size is 5 * 10 * 1024 = 5 * 20 * PAGE_SIZE
     if (new_size > LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024  )
     {
         return -ENOMEM;
@@ -92,9 +92,9 @@ static int nand_read(char* buf, int pca)
     //read from nand
     if ( (fptr = fopen(NAND_LOCATION, "r") ))
     {
-        int offset = block_offset + my_pca.fields.page * 512;
+        int offset = block_offset + my_pca.fields.page * PAGE_SIZE;
         fseek( fptr, offset, SEEK_SET );
-        fread(buf, 1, 512, fptr);
+        fread(buf, 1, PAGE_SIZE, fptr);
         fclose(fptr);
     }
     else
@@ -102,7 +102,7 @@ static int nand_read(char* buf, int pca)
         printf("open file fail at nand read pca = %d\n", pca);
         return -EINVAL;
     }
-    return 512;
+    return PAGE_SIZE;
 }
 static int nand_write(const char* buf, int pca)
 {
@@ -114,9 +114,9 @@ static int nand_write(const char* buf, int pca)
     //write to nand
     if ( (fptr = fopen(NAND_LOCATION, "r+")))
     {
-        int offset = block_offset + my_pca.fields.page * 512;
+        int offset = block_offset + my_pca.fields.page * PAGE_SIZE;
         fseek( fptr, offset, SEEK_SET);
-        fwrite(buf, 1, 512, fptr);
+        fwrite(buf, 1, PAGE_SIZE, fptr);
         fclose(fptr);
         physic_size ++;
     }
@@ -126,8 +126,8 @@ static int nand_write(const char* buf, int pca)
         return -EINVAL;
     }
 
-    nand_write_size += 512;
-    return 512;
+    nand_write_size += PAGE_SIZE;
+    return PAGE_SIZE;
 }
 
 static int nand_erase(int block)
@@ -142,7 +142,7 @@ static int nand_erase(int block)
         fclose(fptr);
         if (written == sizeof(zero_data)) {
             printf("NAND block %d erased successfully\n", block);
-            physic_size -= NAND_SIZE_KB * 1024 / 512;
+            physic_size -= NAND_SIZE_KB * 1024 / PAGE_SIZE;
             return 1; // 成功擦除
         } else {
             printf("Failed to erase NAND block %d\n", block);
@@ -175,13 +175,13 @@ static unsigned int get_next_pca()
         return FULL_PCA;
     }
 
-    if ( curr_pca.fields.page == (NAND_SIZE_KB * 1024 / 512) - 1)
+    if ( curr_pca.fields.page == (NAND_SIZE_KB * 1024 / PAGE_SIZE) - 1)
     {
         curr_pca.fields.block += 1;
         if (curr_pca.fields.block == reserve_nand)
             curr_pca.fields.block += 1; // skip reserve block
     }
-    curr_pca.fields.page = (curr_pca.fields.page + 1 ) % (NAND_SIZE_KB * 1024 / 512);
+    curr_pca.fields.page = (curr_pca.fields.page + 1 ) % (NAND_SIZE_KB * 1024 / PAGE_SIZE);
     
     if (remain_pages == 0)
     {
@@ -254,7 +254,7 @@ static int ftl_write(const char* buf, size_t lba_range, size_t lba)
             }
             printf("\n");
         }
-        return 512;
+        return PAGE_SIZE;
     }
     else
     {
@@ -302,11 +302,11 @@ static unsigned int ftl_gc()
     curr_pca.fields.page = 0;
 
     // Step 2: copy valid page to reserve block, update L2P table
-    for(int page=0; page < NAND_SIZE_KB*1024/512;page++){
+    for(int page=0; page < NAND_SIZE_KB*1024 / PAGE_SIZE;page++){
         
 
         if(P2L[curr_pca.fields.block][page] >= 0){ // current page is valid(with lba)
-            char buf[512];
+            char buf[PAGE_SIZE];
             nand_read(buf, curr_pca.pca + page);
             nand_write(buf, reserve_pca.pca);
             L2P[P2L[curr_pca.fields.block][page]] = reserve_pca.pca;
@@ -321,13 +321,13 @@ static unsigned int ftl_gc()
 
     // Step 3: update P2L table
     nand_erase(curr_pca.fields.block);
-    for(int page=0; page < NAND_SIZE_KB*1024/512;page++){
+    for(int page=0; page < NAND_SIZE_KB*1024 / PAGE_SIZE;page++){
         P2L[curr_pca.fields.block][page] = CLEAR;
     }
 
     // Step 4: set source block as new reserve block
     reserve_nand = curr_pca.fields.block;
-    if (reserve_pca.fields.page >= NAND_SIZE_KB * (1024 / 512)){
+    if (reserve_pca.fields.page >= NAND_SIZE_KB * (1024 / PAGE_SIZE)){
         printf("After GC -> SSD FULL\n");
         curr_pca.pca = FULL_PCA;
         return FULL_PCA;
@@ -351,6 +351,19 @@ static int ssd_file_type(const char* path)
         return SSD_FILE;
     }
     return SSD_NONE;
+}
+static int ssd_unlink(const char* path)
+{
+    if (remove(path) == 0)
+    {
+        printf("unlink success\n");
+        return 0;
+    }
+    else
+    {
+        printf("unlink fail\n");
+        return -errno;
+    }
 }
 static int ssd_getattr(const char* path, struct stat* stbuf,
                        struct fuse_file_info* fi)
@@ -400,16 +413,16 @@ static int ssd_do_read(char* buf, size_t size, off_t offset)
         size = logic_size - offset;
     }
 
-    tmp_lba = offset / 512;
-	tmp_lba_range = (offset + size - 1) / 512 - (tmp_lba) + 1;
-    tmp_buf = calloc(tmp_lba_range * 512, sizeof(char));
+    tmp_lba = offset / PAGE_SIZE;
+	tmp_lba_range = (offset + size - 1) / PAGE_SIZE - (tmp_lba) + 1;
+    tmp_buf = calloc(tmp_lba_range * PAGE_SIZE, sizeof(char));
 
     for (int i = 0; i < tmp_lba_range; i++) {
-        rst = ftl_read(tmp_buf + i * 512, tmp_lba++);
+        rst = ftl_read(tmp_buf + i * PAGE_SIZE, tmp_lba++);
         if ( rst == 0)
         {
             //data has not be written, return empty data
-            memset(tmp_buf + i * 512, 0, 512);
+            memset(tmp_buf + i * PAGE_SIZE, 0, PAGE_SIZE);
         }
         else if (rst < 0 )
         {
@@ -418,7 +431,7 @@ static int ssd_do_read(char* buf, size_t size, off_t offset)
         }
     }
 
-    memcpy(buf, tmp_buf + offset % 512, size);
+    memcpy(buf, tmp_buf + offset % PAGE_SIZE, size);
 
     free(tmp_buf);
     return size;
@@ -437,7 +450,7 @@ static int ssd_do_write(const char* buf, size_t size, off_t offset)
 {
 /*  TODO (Done): only basic write case, need to consider other cases */
     /*  Hint: 2 thins
-        • Divide write cmd into 512B package by size
+        • Divide write cmd into PAGE_SIZE package by size
         • Use ftl_write to write data
         • Need to handle writing non-aligned data
     */
@@ -453,27 +466,27 @@ static int ssd_do_write(const char* buf, size_t size, off_t offset)
         return -ENOMEM;
     }
 
-    tmp_lba = offset / 512;
-    tmp_lba_range = (offset + size - 1) / 512 - (tmp_lba) + 1;
+    tmp_lba = offset / PAGE_SIZE;
+    tmp_lba_range = (offset + size - 1) / PAGE_SIZE - (tmp_lba) + 1;
 
     process_size = 0;
     remain_size = size;
     curr_size = 0;
     for (idx = 0; idx < tmp_lba_range; idx++)
     {
-        int aligned_offset = offset % 512;
-        int aligned_size = 512 - aligned_offset;
+        int aligned_offset = offset % PAGE_SIZE;
+        int aligned_size = PAGE_SIZE - aligned_offset;
         int write_size = aligned_size < remain_size ? aligned_size : remain_size;
 
-        if (aligned_offset == 0 && write_size == 512)
+        if (aligned_offset == 0 && write_size == PAGE_SIZE)
         {
-            // Aligned to 512B, send FTL-write API by LBA
+            // Aligned to PAGE_SIZE, send FTL-write API by LBA
             rst = ftl_write(buf + process_size, write_size, tmp_lba + idx);
         }
         else
         {
-            // Not aligned to 512B, do Read Modify Write operation (RMW)
-            char* tmp_buf = calloc(512, sizeof(char));
+            // Not aligned to PAGE_SIZE, do Read Modify Write operation (RMW)
+            char* tmp_buf = calloc(PAGE_SIZE, sizeof(char));
             rst = ftl_read(tmp_buf, tmp_lba + idx);
             if (rst < 0)
             {
@@ -483,7 +496,7 @@ static int ssd_do_write(const char* buf, size_t size, off_t offset)
 
             memcpy(tmp_buf + aligned_offset, buf + process_size, write_size);
 
-            rst = ftl_write(tmp_buf, 512, tmp_lba + idx);
+            rst = ftl_write(tmp_buf, PAGE_SIZE, tmp_lba + idx);
             free(tmp_buf);
         }
 
@@ -568,6 +581,7 @@ static int ssd_ioctl(const char* path, unsigned int cmd, void* arg,
 static const struct fuse_operations ssd_oper =
 {
     .getattr        = ssd_getattr,
+    .unlink         = ssd_unlink,
     .readdir        = ssd_readdir,
     .truncate       = ssd_truncate,
     .open           = ssd_open,
@@ -582,7 +596,7 @@ int main(int argc, char* argv[])
 	nand_write_size = 0;
 	host_write_size = 0;
     curr_pca.pca = INVALID_PCA;
-    L2P = malloc(LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / 512 * sizeof(int));
-    memset(L2P, INVALID_PCA, sizeof(int)*LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / 512);
+    L2P = malloc(LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / PAGE_SIZE * sizeof(int));
+    memset(L2P, INVALID_PCA, sizeof(int)*LOGICAL_NAND_NUM * NAND_SIZE_KB * 1024 / PAGE_SIZE);
     return fuse_main(argc, argv, &ssd_oper, NULL);
 }
